@@ -1,0 +1,71 @@
+name: Deploy to Prod
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Zip and upload module
+      uses: azure/powershell@v1
+      with:
+        azPSVersion: latest
+        inlineScript: |
+          $ctx = New-AzStorageContext `
+                     -StorageAccountName "${{ secrets.STORAGE_ACCOUNT }}" `
+                     -StorageAccountKey  "${{ secrets.STORAGE_KEY }}"
+
+          Compress-Archive -Path "./util_Integration/*" `
+                           -DestinationPath "./util_Integration.zip" -Force
+
+          Set-AzStorageBlobContent `
+              -File "util_Integration.zip" -Container "config" `
+              -Blob "modules/util_Integration.zip" `
+              -Context $ctx -Force | Out-Null
+
+          $uri = New-AzStorageBlobSASToken `
+                     -Container "config" -Blob "modules/util_Integration.zip" `
+                     -Permission r -ExpiryTime (Get-Date).AddHours(1) `
+                     -Context $ctx -FullUri
+
+          New-AzAutomationModule `
+              -AutomationAccountName "${{ secrets.AUTOMATION_ACCOUNT }}" `
+              -ResourceGroupName     "${{ secrets.RESOURCE_GROUP }}" `
+              -Name                  "util_Integration" `
+              -ContentLinkUri        $uri `
+              -RuntimeVersion        "7.4"
+
+    - name: Deploy Prod runbooks
+      uses: azure/powershell@v1
+      with:
+        azPSVersion: latest
+        inlineScript: |
+          Get-ChildItem "runbooks/*.ps1" | ForEach-Object {
+              $prodName = "Prod_$($_.BaseName)"
+
+              Import-AzAutomationRunbook `
+                  -AutomationAccountName "${{ secrets.AUTOMATION_ACCOUNT }}" `
+                  -ResourceGroupName     "${{ secrets.RESOURCE_GROUP }}" `
+                  -Path                  $_.FullName `
+                  -Name                  $prodName `
+                  -Type                  PowerShell `
+                  -RuntimeVersion        "7.4" `
+                  -Force
+
+              Publish-AzAutomationRunbook `
+                  -AutomationAccountName "${{ secrets.AUTOMATION_ACCOUNT }}" `
+                  -ResourceGroupName     "${{ secrets.RESOURCE_GROUP }}" `
+                  -Name                  $prodName
+
+              Write-Output "Deployed: $prodName"
+          }

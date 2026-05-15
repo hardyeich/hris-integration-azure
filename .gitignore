@@ -1,0 +1,14 @@
+.vscode/
+scratch/
+*.test.ps1
+config/endpoints.json
+config/creds/
+**/*.clixml
+**/*.xml
+vscodeAutomation/
+*.zip
+*.tmp
+logs/
+Thumbs.db
+desktop.ini
+creds/

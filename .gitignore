@@ -12,3 +12,16 @@ logs/
 Thumbs.db
 desktop.ini
 creds/
+
+local.settings.json
+.env
+.settings/cache/workspace-cache/
+.settings/tmp/
+.settings/cache/modules/
+!aaccounts/**/pipelines/modules/
+!aaccounts/**/pipelines/modules/*.zip
+
+.settings/
+
+# Scratch / play-around runbooks — never committed
+aaccounts/**/scratch_*.ps1

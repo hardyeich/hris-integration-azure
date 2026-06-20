@@ -279,10 +279,12 @@ function Connect-AzSmart {
     if ($env:AUTOMATION_ASSET_ACCOUNTID -or (Test-ManagedIdentityAvailable)) {
         Connect-AzAccount -Identity | Out-Null
         $script:AuthMethod        = 'ManagedIdentity'
-        $script:StorageAccountKey = Get-AutomationVariable -Name 'StorageAccountKey' `
-                                        -ErrorAction SilentlyContinue
-        $script:Environment       = Get-AutomationVariable -Name 'Environment' `
-                                        -ErrorAction SilentlyContinue
+        $script:StorageAccountKey = (Get-AzAutomationVariable -Name 'StorageAccountKey' `
+                                        -ErrorAction SilentlyContinue `
+                                        -ResourceGroupName 'rg-oracle-hardy' -AutomationAccountName 'aa-oracle-automation').Value
+        $script:Environment       = (Get-AzAutomationVariable -Name 'Environment' `
+                                        -ErrorAction SilentlyContinue  `
+                                        -ResourceGroupName 'rg-oracle-hardy' -AutomationAccountName 'aa-oracle-automation').Value
         if (-not $script:Environment) { $script:Environment = 'Prod' }
     }
     else {

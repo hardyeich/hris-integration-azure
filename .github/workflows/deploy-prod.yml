@@ -1,4 +1,4 @@
-- name: Deploy runbooks to Automation Account
+  name: Deploy runbooks to Automation Account
   uses: azure/powershell@v1
   with:
     azPSVersion: latest

@@ -1,63 +1,75 @@
-- name: Deploy runbooks to Automation Account
-  uses: azure/powershell@v1
-  with:
-    azPSVersion: latest
-    inlineScript: |
-      $subId      = (Get-AzContext).Subscription.Id
-      $aa         = "${{ secrets.AUTOMATION_ACCOUNT }}"
-      $rg         = "${{ secrets.RESOURCE_GROUP }}"
-      $env        = "ps7_plus_aztable"
-      $loc        = "${{ secrets.AUTOMATION_LOCATION }}"
-      $apiVersion = "2024-10-23"
+name: Deploy runbooks to Automation Account
 
-      Get-ChildItem "aaccounts/aa-oracle-automation/test_*.ps1" | ForEach-Object {
+on:
+  push:
+    branches: [main, dev]
 
-          $prodName = $_.BaseName -replace '^test_', ''
-          $content  = Get-Content $_.FullName -Raw
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy runbooks to Automation Account
+        uses: azure/powershell@v1
+        with:
+          azPSVersion: latest
+          inlineScript: |
+            $subId      = (Get-AzContext).Subscription.Id
+            $aa         = "${{ secrets.AUTOMATION_ACCOUNT }}"
+            $rg         = "${{ secrets.RESOURCE_GROUP }}"
+            $env        = "ps7_plus_aztable"
+            $loc        = "${{ secrets.AUTOMATION_LOCATION }}"
+            $apiVersion = "2024-10-23"
 
-          Write-Output "Deploying: $($_.Name) -> $prodName"
+            Get-ChildItem "aaccounts/aa-oracle-automation/test_*.ps1" | ForEach-Object {
+                $prodName = $_.BaseName -replace '^test_', ''
+                $content  = Get-Content $_.FullName -Raw
 
-          $putPath = "/subscriptions/$subId/resourceGroups/$rg" +
-                     "/providers/Microsoft.Automation/automationAccounts/$aa" +
-                     "/runbooks/$prodName" +
-                     "?api-version=$apiVersion"
+                Write-Output "Deploying: $($_.Name) -> $prodName"
 
-          $putBody = @{
-              location   = $loc
-              properties = @{
-                  runbookType        = "PowerShell"
-                  runtimeEnvironment = $env
-                  description        = "Deployed $(Get-Date -Format 'yyyy-MM-dd HH:mm') via GitHub Actions from $($_.Name)"
-              }
-          } | ConvertTo-Json -Depth 5
+                $putPath = "/subscriptions/$subId/resourceGroups/$rg" +
+                           "/providers/Microsoft.Automation/automationAccounts/$aa" +
+                           "/runbooks/$prodName" +
+                           "?api-version=$apiVersion"
 
-          $r1 = Invoke-AzRestMethod -Method PUT -Path $putPath -Payload $putBody
-          if ($r1.StatusCode -notin 200,201) {
-              Write-Warning "Definition failed for $prodName : $($r1.StatusCode) $($r1.Content)"
-              return
-          }
+                $putBody = @{
+                    location   = $loc
+                    properties = @{
+                        runbookType        = "PowerShell"
+                        runtimeEnvironment = $env
+                        description        = "Deployed $(Get-Date -Format 'yyyy-MM-dd HH:mm') via GitHub Actions from $($_.Name)"
+                    }
+                } | ConvertTo-Json -Depth 5
 
-          $draftPath = "/subscriptions/$subId/resourceGroups/$rg" +
-                       "/providers/Microsoft.Automation/automationAccounts/$aa" +
-                       "/runbooks/$prodName/draft/content" +
-                       "?api-version=$apiVersion"
+                $r1 = Invoke-AzRestMethod -Method PUT -Path $putPath -Payload $putBody
+                if ($r1.StatusCode -notin 200,201) {
+                    Write-Warning "Definition failed for $prodName : $($r1.StatusCode) $($r1.Content)"
+                    return
+                }
 
-          $r2 = Invoke-AzRestMethod -Method PUT -Path $draftPath -Payload $content
-          if ($r2.StatusCode -notin 200,201,202) {
-              Write-Warning "Content upload failed for $prodName : $($r2.StatusCode) $($r2.Content)"
-              return
-          }
+                $draftPath = "/subscriptions/$subId/resourceGroups/$rg" +
+                             "/providers/Microsoft.Automation/automationAccounts/$aa" +
+                             "/runbooks/$prodName/draft/content" +
+                             "?api-version=$apiVersion"
 
-          $publishPath = "/subscriptions/$subId/resourceGroups/$rg" +
-                         "/providers/Microsoft.Automation/automationAccounts/$aa" +
-                         "/runbooks/$prodName/publish" +
-                         "?api-version=$apiVersion"
+                $r2 = Invoke-AzRestMethod -Method PUT -Path $draftPath -Payload $content
+                if ($r2.StatusCode -notin 200,201,202) {
+                    Write-Warning "Content upload failed for $prodName : $($r2.StatusCode) $($r2.Content)"
+                    return
+                }
 
-          $r3 = Invoke-AzRestMethod -Method POST -Path $publishPath -Payload '{}'
+                $publishPath = "/subscriptions/$subId/resourceGroups/$rg" +
+                               "/providers/Microsoft.Automation/automationAccounts/$aa" +
+                               "/runbooks/$prodName/publish" +
+                               "?api-version=$apiVersion"
 
-          if ($r3.StatusCode -in 200, 202) {
-              Write-Output "✅ Published: $prodName"
-          } else {
-              Write-Warning "❌ Publish failed for $prodName : $($r3.StatusCode) $($r3.Content)"
-          }
-      }
+                $r3 = Invoke-AzRestMethod -Method POST -Path $publishPath -Payload '{}'
+
+                if ($r3.StatusCode -in 200, 202) {
+                    Write-Output "✅ Published: $prodName"
+                } else {
+                    Write-Warning "❌ Publish failed for $prodName : $($r3.StatusCode) $($r3.Content)"
+                }
+            }

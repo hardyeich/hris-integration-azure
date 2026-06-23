@@ -4,7 +4,7 @@ on:
     branches:
       - main
     paths:
-      - 'aaccounts/aa-oracle-automation/**'
+      - 'aaccounts/aa-oracle-automation/test_*.ps1'
 
 jobs:
   deploy:
@@ -18,82 +18,6 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           enable-AzPSSession: true
 
-        
-      # DEBUG step stays as-is — should now show subscription
-      - name: Debug — check Azure context
-        uses: azure/powershell@v1
-        with:
-          azPSVersion: latest
-          inlineScript: |
-            $ctx = Get-AzContext
-            if (-not $ctx) {
-                Write-Error "No Azure context — login failed"
-                exit 1
-            }
-            Write-Output "Subscription: $($ctx.Subscription.Id)"
-            Write-Output "Tenant: $($ctx.Tenant.Id)"
-
-      # ── DEBUG: verify checkout and file paths ──────────────────────────────
-      - name: Debug — show working directory and files
-        run: |
-          pwd
-          echo "--- aaccounts/aa-oracle-automation contents ---"
-          ls -la aaccounts/aa-oracle-automation/ 2>&1 || echo "PATH NOT FOUND"
-          echo "--- test_*.ps1 files matched ---"
-          find aaccounts/aa-oracle-automation -name "test_*.ps1" 2>&1 || echo "NO MATCHES"
-
-      # ── DEBUG: verify secrets are populated (without printing values) ──────
-      - name: Debug — check secrets are set
-        run: |
-          echo "AUTOMATION_ACCOUNT set: ${{ secrets.AUTOMATION_ACCOUNT != '' }}"
-          echo "RESOURCE_GROUP set: ${{ secrets.RESOURCE_GROUP != '' }}"
-          echo "AUTOMATION_LOCATION set: ${{ secrets.AUTOMATION_LOCATION != '' }}"
-          echo "STORAGE_ACCOUNT set: ${{ secrets.STORAGE_ACCOUNT != '' }}"
-          echo "STORAGE_KEY set: ${{ secrets.STORAGE_KEY != '' }}"
-
-      # ── DEBUG: verify Az context after login ────────────────────────────────
-      - name: Debug — check Azure context
-        uses: azure/powershell@v1
-        with:
-          azPSVersion: latest
-          inlineScript: |
-            $ctx = Get-AzContext
-            if (-not $ctx) {
-                Write-Error "No Azure context — login failed"
-                exit 1
-            }
-            Write-Output "Subscription: $($ctx.Subscription.Id)"
-            Write-Output "Tenant: $($ctx.Tenant.Id)"
-
-      - name: Zip and upload module
-        uses: azure/powershell@v1
-        with:
-          azPSVersion: latest
-          inlineScript: |
-            $ctx = New-AzStorageContext `
-                       -StorageAccountName "${{ secrets.STORAGE_ACCOUNT }}" `
-                       -StorageAccountKey  "${{ secrets.STORAGE_KEY }}"
-
-            Compress-Archive -Path "./util_Integration/*" `
-                             -DestinationPath "./util_Integration.zip" -Force
-
-            Set-AzStorageBlobContent `
-                -File "util_Integration.zip" -Container "integrationdata" `
-                -Blob "config/modules/util_Integration.zip" `
-                -Context $ctx -Force | Out-Null
-
-            $uri = New-AzStorageBlobSASToken `
-                       -Container "integrationdata" -Blob "config/modules/util_Integration.zip" `
-                       -Permission r -ExpiryTime (Get-Date).AddHours(1) `
-                       -Context $ctx -FullUri
-
-            New-AzAutomationModule `
-                -AutomationAccountName "${{ secrets.AUTOMATION_ACCOUNT }}" `
-                -ResourceGroupName     "${{ secrets.RESOURCE_GROUP }}" `
-                -Name                  "util_Integration" `
-                -ContentLinkUri        $uri `
-                -RuntimeVersion        "7.4"
-
       - name: Deploy Prod runbooks
         uses: azure/powershell@v1
         with:
@@ -106,26 +30,15 @@ jobs:
             $loc        = "${{ secrets.AUTOMATION_LOCATION }}"
             $apiVersion = "2024-10-23"
 
-            if (-not $subId) {
-                Write-Error "subId is empty — Azure login/context failed"
-                exit 1
-            }
-
             $files = Get-ChildItem "aaccounts/aa-oracle-automation/test_*.ps1"
-            Write-Output "Found $($files.Count) test_*.ps1 file(s) to deploy"
-
-            if ($files.Count -eq 0) {
-                Write-Warning "No test_*.ps1 files found — nothing to deploy"
-            }
+            Write-Output "Found $($files.Count) runbook(s) to deploy"
 
             foreach ($file in $files) {
-
                 $prodName = $file.BaseName -replace '^test_', ''
                 $content  = Get-Content $file.FullName -Raw
 
                 Write-Output "Deploying: $($file.Name) -> $prodName"
 
-                # ── Create/update runbook definition ────────────────────────
                 $putPath = "/subscriptions/$subId/resourceGroups/$rg" +
                            "/providers/Microsoft.Automation/automationAccounts/$aa" +
                            "/runbooks/$prodName" +
@@ -136,17 +49,16 @@ jobs:
                     properties = @{
                         runbookType        = "PowerShell"
                         runtimeEnvironment = $env
-                        description        = "Deployed $(Get-Date -Format 'yyyy-MM-dd HH:mm') via GitHub Actions from $($file.Name)"
+                        description        = "Deployed $(Get-Date -Format 'yyyy-MM-dd HH:mm') via GitHub Actions"
                     }
                 } | ConvertTo-Json -Depth 5
 
                 $r1 = Invoke-AzRestMethod -Method PUT -Path $putPath -Payload $putBody
                 if ($r1.StatusCode -notin 200,201) {
-                    Write-Warning "Definition failed for $prodName : $($r1.StatusCode) $($r1.Content)"
+                    Write-Warning "Definition failed for $prodName : $($r1.StatusCode)"
                     continue
                 }
 
-                # ── Upload draft content ─────────────────────────────────────
                 $draftPath = "/subscriptions/$subId/resourceGroups/$rg" +
                              "/providers/Microsoft.Automation/automationAccounts/$aa" +
                              "/runbooks/$prodName/draft/content" +
@@ -154,11 +66,10 @@ jobs:
 
                 $r2 = Invoke-AzRestMethod -Method PUT -Path $draftPath -Payload $content
                 if ($r2.StatusCode -notin 200,201,202) {
-                    Write-Warning "Content upload failed for $prodName : $($r2.StatusCode) $($r2.Content)"
+                    Write-Warning "Content failed for $prodName : $($r2.StatusCode)"
                     continue
                 }
 
-                # ── Publish ───────────────────────────────────────────────────
                 $publishPath = "/subscriptions/$subId/resourceGroups/$rg" +
                                "/providers/Microsoft.Automation/automationAccounts/$aa" +
                                "/runbooks/$prodName/publish" +
@@ -166,11 +77,9 @@ jobs:
 
                 $r3 = Invoke-AzRestMethod -Method POST -Path $publishPath -Payload '{}'
 
-                if ($r3.StatusCode -in 200, 202) {
+                if ($r3.StatusCode -in 200,202) {
                     Write-Output "✅ Published: $prodName"
                 } else {
-                    Write-Warning "❌ Publish failed for $prodName : $($r3.StatusCode) $($r3.Content)"
+                    Write-Warning "❌ Failed: $prodName : $($r3.StatusCode)"
                 }
             }
-
-

@@ -3,7 +3,6 @@ $DebugPreference = 'SilentlyContinue'
 $VerbosePreference = 'SilentlyContinue'
 $InformationPreference = 'SilentlyContinue'
 # change if needed for debugging to $DebugPreference = 'Continue' etc.
-
   function Format-DateString {
     param(
         [Parameter(Mandatory = $false)]

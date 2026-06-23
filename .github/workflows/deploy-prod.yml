@@ -78,12 +78,12 @@ jobs:
                              -DestinationPath "./util_Integration.zip" -Force
 
             Set-AzStorageBlobContent `
-                -File "util_Integration.zip" -Container "config" `
-                -Blob "modules/util_Integration.zip" `
+                -File "util_Integration.zip" -Container "integrationdata" `
+                -Blob "config/modules/util_Integration.zip" `
                 -Context $ctx -Force | Out-Null
 
             $uri = New-AzStorageBlobSASToken `
-                       -Container "config" -Blob "modules/util_Integration.zip" `
+                       -Container "integrationdata" -Blob "config/modules/util_Integration.zip" `
                        -Permission r -ExpiryTime (Get-Date).AddHours(1) `
                        -Context $ctx -FullUri
 

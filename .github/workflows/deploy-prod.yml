@@ -16,6 +16,22 @@ jobs:
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: true
+
+        
+      # DEBUG step stays as-is — should now show subscription
+      - name: Debug — check Azure context
+        uses: azure/powershell@v1
+        with:
+          azPSVersion: latest
+          inlineScript: |
+            $ctx = Get-AzContext
+            if (-not $ctx) {
+                Write-Error "No Azure context — login failed"
+                exit 1
+            }
+            Write-Output "Subscription: $($ctx.Subscription.Id)"
+            Write-Output "Tenant: $($ctx.Tenant.Id)"
 
       # ── DEBUG: verify checkout and file paths ──────────────────────────────
       - name: Debug — show working directory and files

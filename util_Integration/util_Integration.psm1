@@ -960,7 +960,7 @@ function Write-StagingLog {
     }
     $sqlCred = (Get-EndpointConfig).SqlServer.Creds
     $plainPassword = [System.Net.NetworkCredential]::new("", $sqlCred.Password).Password
-    $ConnectionString -replace '{p}', $plainPassword
+    $connStr = $connStr -replace '{p}', $plainPassword
     
 
     $startStr = $Start.ToString('yyyy-MM-dd HH:mm:ss')

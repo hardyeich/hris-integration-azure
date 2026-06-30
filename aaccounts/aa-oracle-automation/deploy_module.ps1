@@ -5,7 +5,20 @@ $rg         = "rg-oracle-hardy"
 $env        = "ps7_plus_aztable"
 $apiVersion = "2024-10-23"
 
-#$storageKey = "HC+e+Z4MUNKYA24rgFiuiVnWillZVWGXJu6aW2ynzH/kL3mUfOfpBtoGmIwpywX+EUnXr0v+tsWO+AStgYWOUw=="
+Import-Module util_Integration -Force  -DisableNameChecking
+
+Initialize-Environment `
+    -StorageAccountName 'saoraclehardy' `
+    -ResourceGroupName  'rg-oracle-hardy' `
+    -SubscriptionId     'Azure Solviasgroup.com / SoftwareOne'
+
+$runId = New-RunId
+Set-FlowInfo -FlowName 'ReportDataLoader' -System 'Azure'
+
+$endpoints = Get-EndpointConfig
+
+
+$storageKey = $endpoints.Environment.StorageAccountKey
 $ctx = New-AzStorageContext -StorageAccountName "saoraclehardy" `
                             -StorageAccountKey  $storageKey
 

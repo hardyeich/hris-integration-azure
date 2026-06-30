@@ -3,7 +3,8 @@ $DebugPreference = 'SilentlyContinue'
 $VerbosePreference = 'SilentlyContinue'
 $InformationPreference = 'SilentlyContinue'
 # change if needed for debugging to $DebugPreference = 'Continue' etc.
-function Format-DateString {
+
+  function Format-DateString {
     param(
         [Parameter(Mandatory = $false)]
         [string]$InputDate
@@ -274,6 +275,8 @@ $DropDate  = $StartDate.AddDays(-1)
 
 Log-Info -Phase 'START' -Message "Capacity load started" `
          -Details "Period: $($StartDate.ToString('yyyy-MM-dd')) to $($EndDate.ToString('yyyy-MM-dd'))"
+
+$script:FlowStartTime = ([datetime]::UtcNow)
 
 try {
 
@@ -854,12 +857,12 @@ try {
 # 6. FINALISE
 # ═════════════════════════════════════════════════════════════════════════════
 
-<#     Write-StagingLog -ProcessName  'CapacityLoad' `
+     Write-StagingLog -ProcessName  'ResCapaDataTS' `
                      -Status       $(if ($empErrors -eq 0) { 'SUCCESS' } else { 'WARNING' }) `
                      -Count        $totalInserted `
                      -Start        $script:FlowStartTime `
                      -End          ([datetime]::UtcNow) `
-                     -ConnectionString $endpoints.SqlServer.ConnectionString #>
+                     -ConnectionString $sqlConnectionString #$endpoints.SqlServer.ConnectionString 
 
     Log-Info -Phase 'END' `
              -Message    "Capacity load complete" `

@@ -1,5 +1,35 @@
 Import-Module util_Integration -Force  -DisableNameChecking
 
+
+function Invoke-WithRetry {
+    param(
+        [scriptblock]$ScriptBlock,
+        [int]$MaxAttempts        = 3,
+        [int]$DelaySeconds       = 10,
+        [string]$OperationName   = 'Operation'
+    )
+
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            return & $ScriptBlock
+        } catch {
+            $errMsg = $_.Exception.Message
+            if ($attempt -ge $MaxAttempts) {
+                Log-Error -Phase 'STEP' -Level 'ERROR' `
+                          -Message "$OperationName failed after $attempt attempts" `
+                          -Details $errMsg
+                throw
+            }
+            Log-Warning -Phase 'STEP' `
+                        -Message "$OperationName attempt $attempt failed, retrying in $DelaySeconds sec" `
+                        -Details $errMsg
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
 Initialize-Environment `
     -StorageAccountName 'saoraclehardy' `
     -ResourceGroupName  'rg-oracle-hardy' `
@@ -23,7 +53,7 @@ try {
     # ----------------------------
 
     $ReportMappings = @(
-        @{
+          @{
             ReportName = "AbsenceAccrualsReport"
             Table   = "dbo.CON_ABSENCE_ACC"
             ColumnMap = @{
@@ -36,7 +66,7 @@ try {
             Table   = "dbo.CON_ABSENCE_DET"
             ColumnMap = @{}
             Delimiter = ","
-        },
+        },  
         @{
             ReportName = "TimeDetailsReport"
             Table   = "dbo.CON_TIMECARD_DET"
@@ -45,8 +75,14 @@ try {
                 "CostCenter_Override" = "COSTCENTER_OVERRIDE"
             }
             Delimiter = ";"
-        }  
-    )
+             # Chunking config
+            ChunkByMonth   = $true
+            StartMonth     = '2026-01-01'              # fixed start, grows over time
+            DateColumn     = 'start_time'              # column used for per-chunk delete
+            StartParam     = 'p_start_date'            # BIP parameter name
+            EndParam       = 'p_end_date'              # BIP parameter name
+        }   
+     )
     # ----------------------------
     # Main Processing Loop
     # ----------------------------
@@ -58,24 +94,95 @@ try {
             Set-FlowInfo  -FlowName $mapping.ReportName -System 'Azure'
             Log-Info -Phase 'START' -Message "Processing report: $($mapping.ReportName)" -Details "Target table: $($mapping.Table)" -Level 'INFO'
             $processStartDate = Get-Date
+            $numRows          = 0
+            
+            # ── Chunked vs single-call branch ────────────────────────────────────
+            if ($mapping.ContainsKey('ChunkByMonth') -and $mapping.ChunkByMonth) {
 
-            $res= Get-OicData -Flow  $mapping.ReportName `
-                        -BIP         'Y' `
-                        -BaseUrl     $endpoints.OIC.BaseUrl `
-                        -Credentials $endpoints.OIC.Creds `
-                        -OutputMode  'Stream' # get file path for bulk load  
+                $start = [datetime]::ParseExact($mapping.StartMonth, 'yyyy-MM-dd', $null)
+                $now   = Get-Date -Day 1
 
-            Log-Info -Phase 'STEP' -Message "OIC data retrieval result: $($res | ConvertTo-Json -Compress)" 
+                $chunks  = [System.Collections.Generic.List[hashtable]]::new()
+                $current = $start
+                while ($current -le $now) {
+                    $chunks.Add(@{
+                        StartDate = $current.ToString('yyyy-MM-dd')
+                        EndDate   = $current.AddMonths(1).AddDays(0).ToString('yyyy-MM-dd')
+                        Label     = $current.ToString('yyyy-MM')
+                    })
+                    $current = $current.AddMonths(1)
+                }
 
-            $numRows =Invoke-BulkLoad  -InputStream $res.Stream   `
-                        -TableName  $mapping.Table `
-                        -ConnectionString $connectionString `
-                        -ColumnMap $mapping.ColumnMap `
-                        -Delimiter $mapping.Delimiter
+                        Log-Info -Phase 'STEP' `
+                        -Message "Chunks to process: $($chunks.Count)" `
+                        -Details "From $($chunks[0].StartDate) to $($chunks[-1].EndDate)"
+
+                foreach ($chunk in $chunks) {
+
+                    Log-Info -Phase 'STEP' `
+                            -Message "Loading chunk $($chunk.Label)" `
+                            -Details "$($chunk.StartDate) to $($chunk.EndDate)"
+
+                    $params = @{}
+                    $params[$mapping.StartParam] = $chunk.StartDate
+                    $params[$mapping.EndParam]   = $chunk.EndDate
+
+
+
+                    # Per-chunk delete filter — clears just this month
+                    $chunkFilter = "$($mapping.DateColumn) >= '$($chunk.StartDate)' " +
+                                "AND $($mapping.DateColumn) < '$($chunk.EndDate)'"
+
+                     $chunkRows = Invoke-WithRetry -OperationName "Chunk $($chunk.Label)" -ScriptBlock {
+
+                        $res = Get-OicData -Flow         $mapping.ReportName `
+                                    -BIP          'Y' `
+                                    -BaseUrl      $endpoints.OIC.BaseUrl `
+                                    -Credentials  $endpoints.OIC.Creds `
+                                    -OutputMode   'Stream' `
+                                    -ExtraParams  @{ parameters = $params } 
+
+                        Invoke-BulkLoad `
+                            -InputStream      $res.Stream `
+                            -TableName        $mapping.Table `
+                            -ConnectionString $connectionString `
+                            -ColumnMap        $mapping.ColumnMap `
+                            -Delimiter        $mapping.Delimiter `
+                            -DeleteFilter     $chunkFilter 
+                    }
+
+                    Log-Info -Phase 'STEP' `
+                            -Message "Chunk $($chunk.Label) loaded" `
+                            -Records $chunkRows
+
+                    $numRows += $chunkRows
+                }
+            }
+            else {
+                $res= Get-OicData -Flow  $mapping.ReportName `
+                            -BIP         'Y' `
+                            -BaseUrl     $endpoints.OIC.BaseUrl `
+                            -Credentials $endpoints.OIC.Creds `
+                            -OutputMode  'Stream' # get file path for bulk load  
+
+                Log-Info -Phase 'STEP' -Message "OIC data retrieval result: $($res | ConvertTo-Json -Compress)" 
+
+                $numRows =Invoke-BulkLoad  -InputStream $res.Stream   `
+                            -TableName  $mapping.Table `
+                            -ConnectionString $connectionString `
+                            -ColumnMap $mapping.ColumnMap `
+                            -Delimiter $mapping.Delimiter
+            }
 
             $processName = $mapping.Table.Replace("dbo.", "")
             $processEndDate = Get-Date
-            #UpdateAzureLog -config $envConfig -ProjectRoot $projectRoot -ProcessName $processName -Start $processStartDate -End $processEndDate -Count $numRows[0] -Status "SUCCESS"
+
+            Write-StagingLog -ProcessName  $mapping.Table.Replace("dbo.", "") `
+                     -Status       'SUCCESS' `
+                     -Count        $numRows `
+                     -Start        $processStartDate `
+                     -End          $processEndDate `
+                     -ConnectionString $endpoints.SqlServer.ConnectionString 
 
             $timeSpan = $processEndDate - $processStartDate
             $seconds = [math]::Round($timeSpan.TotalSeconds)

@@ -12,7 +12,7 @@ Initialize-Environment `
     -ResourceGroupName  'rg-oracle-hardy' `
     -SubscriptionId     'Azure Solviasgroup.com / SoftwareOne'
 
-$runId = New-RunId
+$runId = New-RunId 
 Set-FlowInfo -FlowName 'ReportDataLoader' -System 'Azure'
 
 $endpoints = Get-EndpointConfig 

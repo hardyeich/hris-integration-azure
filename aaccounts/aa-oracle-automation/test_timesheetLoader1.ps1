@@ -538,6 +538,14 @@ try {
 
     $csvData = $res.Data
     Log-Info -Phase 'STEP' -Message "Read CSV" -Records $csvData.Count
+
+        # store commercial project data upload for traceability
+    if ($csvData.Count -gt 0) {
+        Set-BlobCsv -Container 'integrationdata' `
+                -BlobName  "logs/TimeCardDay_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" `
+                -Data      $csvData `
+                -Delimiter ';'
+    }
     
     $csvData = $csvData | ForEach-Object {
         [PSCustomObject]@{

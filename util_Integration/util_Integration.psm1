@@ -666,7 +666,9 @@ function Invoke-BulkLoad {
 
         [hashtable]$ColumnMap = @{},
         [char]$Delimiter      = ',',
-        [int]$BatchSize       = 50000
+        [int]$BatchSize       = 50000,
+        [string]$DeleteFilter = $null,     # <- new — optional WHERE clause for delete
+        [switch]$SkipDelete                # <- new — bypass the delete step entirely
     )
 
     $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
@@ -682,9 +684,25 @@ function Invoke-BulkLoad {
             $ownsStream = $false
         }
 
-        $deleteCmd             = $connection.CreateCommand()
+<#         $deleteCmd             = $connection.CreateCommand()
         $deleteCmd.CommandText = "DELETE FROM $TableName"
-        $deleteCmd.ExecuteNonQuery() | Out-Null
+        $deleteCmd.ExecuteNonQuery() | Out-Null #>
+
+        if (-not $SkipDelete) {
+            $deleteCmd = $connection.CreateCommand()
+            $deleteCmd.CommandTimeout = 300    # <- 5 minutes 
+            
+            if ([string]::IsNullOrWhiteSpace($DeleteFilter)) {
+                $deleteCmd.CommandText = "DELETE FROM $TableName"
+                Log-Info -Message "Table $TableName cleared" -Phase 'STEP'
+            } else {
+                $deleteCmd.CommandText = "DELETE FROM $TableName WHERE $DeleteFilter"
+                Log-Info -Message "Table $TableName cleared with filter" `
+                        -Details $DeleteFilter -Phase 'STEP'
+            }
+            $deleteCmd.ExecuteNonQuery() | Out-Null
+        }
+
         Log-Info -Message "Table $TableName cleared" -Phase 'STEP'
 
         $schemaCmd             = $connection.CreateCommand()
@@ -939,10 +957,11 @@ function Write-StagingLog {
         $ConnectionString
     } else {
         $ConnectionString =(Get-EndpointConfig).SqlServer.ConnectionString
-        $sqlCred = (Get-EndpointConfig).SqlServer.Creds
-        $plainPassword = [System.Net.NetworkCredential]::new("", $sqlCred.Password).Password
-        $ConnectionString -replace '{p}', $plainPassword
     }
+    $sqlCred = (Get-EndpointConfig).SqlServer.Creds
+    $plainPassword = [System.Net.NetworkCredential]::new("", $sqlCred.Password).Password
+    $ConnectionString -replace '{p}', $plainPassword
+    
 
     $startStr = $Start.ToString('yyyy-MM-dd HH:mm:ss')
     $endStr   = $End.ToString('yyyy-MM-dd HH:mm:ss')

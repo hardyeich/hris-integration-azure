@@ -5,7 +5,7 @@ $rg         = "rg-oracle-hardy"
 $env        = "ps7_plus_aztable"
 $apiVersion = "2024-10-23"
 
-$storageKey = "HC+e+Z4MUNKYA24rgFiuiVnWillZVWGXJu6aW2ynzH/kL3mUfOfpBtoGmIwpywX+EUnXr0v+tsWO+AStgYWOUw=="
+#$storageKey = "HC+e+Z4MUNKYA24rgFiuiVnWillZVWGXJu6aW2ynzH/kL3mUfOfpBtoGmIwpywX+EUnXr0v+tsWO+AStgYWOUw=="
 $ctx = New-AzStorageContext -StorageAccountName "saoraclehardy" `
                             -StorageAccountKey  $storageKey
 

@@ -15,10 +15,10 @@ Initialize-Environment `
 $runId = New-RunId
 Set-FlowInfo -FlowName 'ReportDataLoader' -System 'Azure'
 
-$endpoints = Get-EndpointConfig
-
+$endpoints = Get-EndpointConfig 
 
 $storageKey = $endpoints.Environment.StorageAccountKey
+
 $ctx = New-AzStorageContext -StorageAccountName "saoraclehardy" `
                             -StorageAccountKey  $storageKey
 
